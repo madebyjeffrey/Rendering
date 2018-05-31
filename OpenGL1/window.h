@@ -9,6 +9,11 @@
 
 #include "rect.h"
 
+class window;
+
+using event_handler_fn = std::function<LRESULT(window&, UINT, WPARAM, LPARAM)>;
+using create_handler = std::function<LRESULT(window&, CREATESTRUCT*)>;
+
 class window {
 
 public:
@@ -21,7 +26,13 @@ public:
 	void show();
 	void hide();
 
-	
+	HWND const get_handle() const;
+
+	void set_fallback_handler(event_handler_fn handler);
+	event_handler_fn const &get_fallback_handler() const;
+	void clear_fallback_handler();
+
+	void run_events();
 
 private:
 	// the unique name of the class 
@@ -30,21 +41,22 @@ private:
 	ATOM const window_instance_atom;
 	HWND handle;
 
-	std::function<int(window&, UINT, WPARAM, LPARAM)> _unhandled_events;
+	event_handler_fn _unhandled_events;
 
+	create_handler _create_handler;
 
-	window();
+	window(create_handler create_handler);
 	
 	void register_class();
 	void create_window();
-	void start_events();
+	
 
 
-	int event_handler(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam);
+	LPARAM event_handler(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam);
 
-	friend window create_window(std::wstring const title, rect const location);
+	friend window make_window(std::wstring const title, rect const location, create_handler create_handler);
 	friend LRESULT CALLBACK window_event_loop(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam);
 
 };
 
-window create_window(std::wstring const title, rect const location);
+window make_window(std::wstring const title, rect const location, create_handler create_handler);

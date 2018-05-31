@@ -21,4 +21,8 @@ public:
 
 		return r;
 	}
+
+	rect inset(std::size_t top, std::size_t right, std::size_t bottom, std::size_t left) const {
+		return rect(x + left, y + top, width - right - left, height - top - bottom);
+	}
 };

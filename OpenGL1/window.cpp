@@ -12,9 +12,9 @@
 static std::wstring generate_unique();
 static LRESULT CALLBACK window_event_loop(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam);
 
-window create_window(std::wstring const title, rect const location) 
+window make_window(std::wstring const title, rect const location, create_handler create_handler)
 {
-	auto w = window();
+	auto w = window(create_handler);
 
 	w.set_title(title);	
 	w.set_position(location);
@@ -38,7 +38,11 @@ std::wstring window::get_title() const {
 }
 
 void window::set_position(rect const position) {
-	SetWindowPos(handle, HWND_TOP, position.x, position.y, position.width, position.height, static_cast<UINT>(SWP_NOZORDER));
+	SetWindowPos(handle, HWND_TOP, static_cast<int>(position.x), 
+		static_cast<int>(position.y), 
+		static_cast<int>(position.width), 
+		static_cast<int>(position.height), 
+		static_cast<UINT>(SWP_NOZORDER));
 }
 
 rect window::get_position() const {
@@ -50,20 +54,44 @@ rect window::get_position() const {
 }
 
 void window::show() {
-	SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+	SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
 }
 
 void window::hide() {
-	SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_HIDEWINDOW);
+	SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_HIDEWINDOW);
 }
 
-window::window()
+HWND const window::get_handle() const
+{
+	return handle;
+}
+
+void window::set_fallback_handler(event_handler_fn handler)
+{
+	_unhandled_events = handler;
+}
+event_handler_fn const &window::get_fallback_handler() const
+{
+	return _unhandled_events;
+}
+
+void window::clear_fallback_handler()
+{
+	_unhandled_events = event_handler_fn();
+}
+
+window::window(create_handler create_handler)
 	: class_name(generate_unique()),
 	window_instance_atom(GlobalAddAtom(_T("WindowInstance"))),
-	_unhandled_events()
+	_unhandled_events(nullptr),
+	handle(nullptr),
+	_create_handler(create_handler)
 {
+	
 	register_class();
+	bool value1 = static_cast<bool>(_unhandled_events);
 	create_window();
+	bool value2 = static_cast<bool>(_unhandled_events);
 }
 
 void window::register_class() 
@@ -75,7 +103,7 @@ void window::register_class()
 	WndClass.style = CS_OWNDC;										// Class styles
 	WndClass.lpfnWndProc = window_event_loop;						// Handler for this class
 	WndClass.cbClsExtra = 0;										// No extra class data
-	WndClass.cbWndExtra = 0;										// No extra window data
+	WndClass.cbWndExtra = sizeof(LPVOID);										// No extra window data
 	WndClass.hInstance = GetModuleHandle(NULL);						// This instance
 	WndClass.hIcon = LoadIcon(0, IDI_APPLICATION);					// Set icon
 	WndClass.hCursor = LoadCursor(0, IDC_ARROW);					// Set cursor
@@ -92,7 +120,7 @@ void window::create_window() {
 }
 
 // never returns
-void window::start_events() {
+void window::run_events() {
 	MSG Msg;
 
 	while (GetMessage(&Msg, 0, 0, 0)) {								// Get messages
@@ -101,11 +129,22 @@ void window::start_events() {
 	};
 }
 
-int window::event_handler(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
-
-	if (_unhandled_events) {
-		return _unhandled_events(*this, Msg, wParam, lParam);
+LPARAM window::event_handler(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
+	switch (Msg) 
+	{
+	case WM_CREATE:
+		if (_create_handler)
+		{
+			CREATESTRUCT * cs = reinterpret_cast<CREATESTRUCT*>(lParam);
+			return _create_handler(*this, cs);
+		}
+	default:
+		if (_unhandled_events) {
+			return _unhandled_events(*this, Msg, wParam, lParam);
+		}
 	}
+
+
 
 	return TRUE;
 }
@@ -117,13 +156,21 @@ static std::wstring generate_unique() {
 }
 
 static LRESULT CALLBACK window_event_loop(HWND Wnd, UINT Msg, WPARAM wParam, LPARAM lParam) {
+	
 	if (Msg != WM_NCCREATE) {
-		auto ptr = GetWindowLongPtr(Wnd, GWLP_USERDATA);
+		auto ptr = GetWindowLongPtr(Wnd, 0);
 		auto wnd = reinterpret_cast<window*>(ptr);
-		return wnd->event_handler(Wnd, Msg, wParam, lParam);
+
+		if (wnd != nullptr) {
+			bool value = static_cast<bool>(wnd->get_fallback_handler());
+			return wnd->event_handler(Wnd, Msg, wParam, lParam);
+		}	
+
+		return 0;
 	}
 	
+	auto cs = reinterpret_cast<CREATESTRUCT*>(lParam);
 	// it is WM_NCCREATE
-	SetWindowLongPtr(Wnd, GWLP_USERDATA, lParam);
+	SetWindowLongPtr(Wnd, 0, reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
 	return TRUE;
 }
